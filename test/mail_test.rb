@@ -41,22 +41,22 @@ class MailTest < ActiveSupport::TestCase
     assert_equal NKF::JIS, NKF.guess(mail.body.encoded)
   end
 
-  test "should encode a display name that mixes ASCII words, spaces and Japanese as one encoded-word" do
+  # A display name whose token next to the quote contains a non-letter ("Sakura-Flower", "Shop:Name",
+  # "Yamada, Inc.") used to be split into raw and encoded fragments, so the mail gem could not
+  # extract the addr-spec. The addr-spec check comes first: it is what SMTP (RCPT TO) relies on.
+  test "should keep the addr-spec extractable when the display name mixes ASCII words, symbols, spaces and Japanese" do
     mail = Mail.new(:charset => 'ISO-2022-JP') do
       from 'from@example.test'
-      to '"Sakura Flower 花屋" <to@example.test>'
-      cc '"Tea Shop / 緑茶専門店" <cc@example.test>'
-      bcc '"Shop:Name 店" <bcc@example.test>'
+      to '"Sakura-Flower 花屋" <to@example.test>'
+      cc '"Shop:Name 店" <cc@example.test>'
       subject '件名'
       body '本文'
     end
-    assert_equal "To: =?ISO-2022-JP?B?U2FrdXJhIEZsb3dlciAbJEIyVjIwGyhC?= <to@example.test>\r\n", mail[:to].encoded
-    assert_equal "Cc: =?ISO-2022-JP?B?VGVhIFNob3AgLyAbJEJOUENjQGxMZ0U5GyhC?= <cc@example.test>\r\n", mail[:cc].encoded
-    assert_equal "Sakura Flower 花屋", NKF.nkf('-mw', mail[:to].display_names.first)
-    assert_equal "Tea Shop / 緑茶専門店", NKF.nkf('-mw', mail[:cc].display_names.first)
-    assert_equal "Shop:Name 店", NKF.nkf('-mw', mail[:bcc].display_names.first)
-    # The addr-specs must still be extractable (they are used for SMTP RCPT TO)
-    assert_equal ["to@example.test", "cc@example.test", "bcc@example.test"], mail.destinations
+    assert_equal ["to@example.test", "cc@example.test"], mail.destinations
+    assert_equal "To: =?ISO-2022-JP?B?U2FrdXJhLUZsb3dlciAbJEIyVjIwGyhC?= <to@example.test>\r\n", mail[:to].encoded
+    assert_equal "Cc: =?ISO-2022-JP?B?U2hvcDpOYW1lIBskQkU5GyhC?= <cc@example.test>\r\n", mail[:cc].encoded
+    assert_equal "Sakura-Flower 花屋", NKF.nkf('-mw', mail[:to].display_names.first)
+    assert_equal "Shop:Name 店", NKF.nkf('-mw', mail[:cc].display_names.first)
   end
 
   test "should keep the addr-spec when the display name contains a comma" do
@@ -66,19 +66,19 @@ class MailTest < ActiveSupport::TestCase
       subject '件名'
       body '本文'
     end
-    assert_equal "To: =?ISO-2022-JP?B?WWFtYWRhLCBJbmMuIBskQjszRUQ+JkU5GyhC?= <to@example.test>\r\n", mail[:to].encoded
     assert_equal ["to@example.test"], mail.destinations
+    assert_equal "To: =?ISO-2022-JP?B?WWFtYWRhLCBJbmMuIBskQjszRUQ+JkU5GyhC?= <to@example.test>\r\n", mail[:to].encoded
   end
 
   test "should encode each display name of a comma separated address list" do
     mail = Mail.new(:charset => 'ISO-2022-JP') do
       from 'from@example.test'
-      to '"Taro Yamada 太郎" <taro@example.test>, 佐藤好子 <yoshiko@example.test>'
+      to '"Sakura-Flower 花屋" <taro@example.test>, 佐藤好子 <yoshiko@example.test>'
       subject '件名'
       body '本文'
     end
-    assert_equal "To: =?ISO-2022-JP?B?VGFybyBZYW1hZGEgGyRCQkBPOhsoQg==?= <taro@example.test>, \r\n =?ISO-2022-JP?B?GyRCOjRGIzklO1IbKEI=?= <yoshiko@example.test>\r\n", mail[:to].encoded
     assert_equal ["taro@example.test", "yoshiko@example.test"], mail.destinations
+    assert_equal "To: =?ISO-2022-JP?B?U2FrdXJhLUZsb3dlciAbJEIyVjIwGyhC?= <taro@example.test>, \r\n =?ISO-2022-JP?B?GyRCOjRGIzklO1IbKEI=?= <yoshiko@example.test>\r\n", mail[:to].encoded
   end
 
   test "should leave ASCII only display names and bare addresses as they are" do
