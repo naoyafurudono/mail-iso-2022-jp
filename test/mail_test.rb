@@ -93,6 +93,21 @@ class MailTest < ActiveSupport::TestCase
     assert_equal "Cc: cc@example.test\r\n", mail[:cc].encoded
   end
 
+  test "should fall back to the token-wise encoding for addresses with a non-ASCII addr-spec, a comment or a group" do
+    mail = Mail.new(:charset => 'ISO-2022-JP') do
+      from 'from@example.test'
+      to '太郎@example.test'
+      cc '太郎 (店) <cc@example.test>'
+      reply_to '店舗: 佐藤花子 <reply@example.test>;'
+      subject '件名'
+      body '本文'
+    end
+    # same outputs as before this change
+    assert_equal "To: =?ISO-2022-JP?B?GyRCQkBPOhsoQkBleGFtcGxlLnRlc3Q=?=\r\n", mail[:to].encoded
+    assert_equal "Cc: =?ISO-2022-JP?B?GyRCQkBPOhsoQg==?= =?ISO-2022-JP?B?KBskQkU5GyhCKQ==?= <cc@example.test>\r\n", mail[:cc].encoded
+    assert_equal "Reply-To: =?ISO-2022-JP?B?GyRCRTlKXhsoQjo=?= =?ISO-2022-JP?B?GyRCOjRGIzJWO1IbKEI=?= <reply@example.test>\r\n", mail[:reply_to].encoded
+  end
+
   test "should send with ISO-2022-JP encoding and empty subject" do
     mail = Mail.new(:charset => 'ISO-2022-JP') do
       from '山田太郎 <taro@example.com>'

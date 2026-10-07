@@ -19,11 +19,18 @@ module Mail
 
     # Returns the encoded address list, or nil if the value cannot be handled as
     # an address list (then the caller falls back to the token-wise encoding).
+    # Only plain mailboxes (display-name and addr-spec) are handled here: values
+    # with a non-ASCII addr-spec, comments or group syntax are left to the fallback
+    # so that nothing is dropped from them.
     def encode_address_list_with_iso_2022_jp(value, charset)
       return nil unless value.kind_of?(String) && !value.ascii_only?
 
-      addresses = Mail::AddressList.new(value).addresses
-      return nil if addresses.empty? || addresses.any? { |a| a.address.nil? }
+      list = Mail::AddressList.new(value)
+      return nil unless list.group_names.empty?
+
+      addresses = list.addresses
+      return nil if addresses.empty?
+      return nil if addresses.any? { |a| a.address.nil? || !a.address.ascii_only? || !a.comments.nil? }
 
       addresses.map { |a| encode_address_with_iso_2022_jp(a, charset) }.join(', ').force_encoding('ascii-8bit')
     rescue Mail::Field::ParseError
