@@ -41,6 +41,58 @@ class MailTest < ActiveSupport::TestCase
     assert_equal NKF::JIS, NKF.guess(mail.body.encoded)
   end
 
+  test "should encode a display name that mixes ASCII words, spaces and Japanese as one encoded-word" do
+    mail = Mail.new(:charset => 'ISO-2022-JP') do
+      from 'from@example.test'
+      to '"Sakura Flower 花屋" <to@example.test>'
+      cc '"Tea Shop / 緑茶専門店" <cc@example.test>'
+      bcc '"Shop:Name 店" <bcc@example.test>'
+      subject '件名'
+      body '本文'
+    end
+    assert_equal "To: =?ISO-2022-JP?B?U2FrdXJhIEZsb3dlciAbJEIyVjIwGyhC?= <to@example.test>\r\n", mail[:to].encoded
+    assert_equal "Cc: =?ISO-2022-JP?B?VGVhIFNob3AgLyAbJEJOUENjQGxMZ0U5GyhC?= <cc@example.test>\r\n", mail[:cc].encoded
+    assert_equal "Sakura Flower 花屋", NKF.nkf('-mw', mail[:to].display_names.first)
+    assert_equal "Tea Shop / 緑茶専門店", NKF.nkf('-mw', mail[:cc].display_names.first)
+    assert_equal "Shop:Name 店", NKF.nkf('-mw', mail[:bcc].display_names.first)
+    # The addr-specs must still be extractable (they are used for SMTP RCPT TO)
+    assert_equal ["to@example.test", "cc@example.test", "bcc@example.test"], mail.destinations
+  end
+
+  test "should keep the addr-spec when the display name contains a comma" do
+    mail = Mail.new(:charset => 'ISO-2022-JP') do
+      from 'from@example.test'
+      to '"Yamada, Inc. 山田商店" <to@example.test>'
+      subject '件名'
+      body '本文'
+    end
+    assert_equal "To: =?ISO-2022-JP?B?WWFtYWRhLCBJbmMuIBskQjszRUQ+JkU5GyhC?= <to@example.test>\r\n", mail[:to].encoded
+    assert_equal ["to@example.test"], mail.destinations
+  end
+
+  test "should encode each display name of a comma separated address list" do
+    mail = Mail.new(:charset => 'ISO-2022-JP') do
+      from 'from@example.test'
+      to '"Taro Yamada 太郎" <taro@example.test>, 佐藤好子 <yoshiko@example.test>'
+      subject '件名'
+      body '本文'
+    end
+    assert_equal "To: =?ISO-2022-JP?B?VGFybyBZYW1hZGEgGyRCQkBPOhsoQg==?= <taro@example.test>, \r\n =?ISO-2022-JP?B?GyRCOjRGIzklO1IbKEI=?= <yoshiko@example.test>\r\n", mail[:to].encoded
+    assert_equal ["taro@example.test", "yoshiko@example.test"], mail.destinations
+  end
+
+  test "should leave ASCII only display names and bare addresses as they are" do
+    mail = Mail.new(:charset => 'ISO-2022-JP') do
+      from 'from@example.test'
+      to 'Hanako Sato <to@example.test>'
+      cc 'cc@example.test'
+      subject '件名'
+      body '本文'
+    end
+    assert_equal "To: Hanako Sato <to@example.test>\r\n", mail[:to].encoded
+    assert_equal "Cc: cc@example.test\r\n", mail[:cc].encoded
+  end
+
   test "should send with ISO-2022-JP encoding and empty subject" do
     mail = Mail.new(:charset => 'ISO-2022-JP') do
       from '山田太郎 <taro@example.com>'
@@ -67,9 +119,15 @@ class MailTest < ActiveSupport::TestCase
       body '日本語本文'
     end
     assert_equal 'ISO-2022-JP', mail.charset
-    assert_equal "From: =?ISO-2022-JP?B?Ig==?= =?ISO-2022-JP?B?PFlhbWFkYQ==?= =?ISO-2022-JP?B?GyRCQkBPOhsoQj4i?= <taro@example.com>\r\n", mail[:from].encoded
-    assert_equal "To: =?ISO-2022-JP?B?IjwbJEI6NEYjGyhC?= =?ISO-2022-JP?B?SGFuYWtvPg==?= =?ISO-2022-JP?B?Ig==?= <hanako@example.com>\r\n", mail[:to].encoded
-    assert_equal "Cc: =?ISO-2022-JP?B?Ig==?= =?ISO-2022-JP?B?PFgbJEI7dkwzNkkbKEI+?= =?ISO-2022-JP?B?Ig==?= <info@example.com>\r\n", mail[:cc].encoded
+    # The display name is encoded as a single encoded-word; the quotes are not needed any more
+    assert_equal "From: =?ISO-2022-JP?B?PFlhbWFkYSAbJEJCQE86GyhCPg==?= <taro@example.com>\r\n", mail[:from].encoded
+    assert_equal "To: =?ISO-2022-JP?B?PBskQjo0RiMbKEIgSGFuYWtvPg==?= <hanako@example.com>\r\n", mail[:to].encoded
+    assert_equal "Cc: =?ISO-2022-JP?B?PFgbJEI7dkwzNkkbKEI+?= <info@example.com>\r\n", mail[:cc].encoded
+    # Surrounding spaces of the quoted display names are dropped by the address parser
+    assert_equal "<Yamada 太郎>", NKF.nkf('-mw', mail[:from].display_names.first)
+    assert_equal "<佐藤 Hanako>", NKF.nkf('-mw', mail[:to].display_names.first)
+    assert_equal "<X事務局>", NKF.nkf('-mw', mail[:cc].display_names.first)
+    assert_equal ["hanako@example.com", "info@example.com"], mail.destinations
     version_numbers = ENV['MAIL_GEM_VERSION'].split('.')
     major_version_number = version_numbers[0].to_i
     minor_version_number = version_numbers[1].to_i
