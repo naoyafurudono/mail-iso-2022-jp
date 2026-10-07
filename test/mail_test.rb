@@ -41,6 +41,36 @@ class MailTest < ActiveSupport::TestCase
     assert_equal NKF::JIS, NKF.guess(mail.body.encoded)
   end
 
+  # A display name whose token next to the quote contains a non-letter ("Sakura-Flower", "Yamada, Inc.")
+  # used to be split into raw and encoded fragments, so the mail gem could not extract the addr-spec.
+  test "should keep the addr-spec extractable when the display name mixes ASCII words, symbols, spaces and Japanese" do
+    mail = Mail.new(:charset => 'ISO-2022-JP') do
+      from 'from@example.test'
+      to '"Sakura-Flower 花屋" <to@example.test>, 佐藤好子 <yoshiko@example.test>'
+      cc '"Yamada, Inc. 山田商店" <cc@example.test>'
+      subject '件名'
+      body '本文'
+    end
+    assert_equal ["to@example.test", "yoshiko@example.test", "cc@example.test"], mail.destinations
+    assert_equal "To: =?ISO-2022-JP?B?U2FrdXJhLUZsb3dlciAbJEIyVjIwGyhC?= <to@example.test>, \r\n =?ISO-2022-JP?B?GyRCOjRGIzklO1IbKEI=?= <yoshiko@example.test>\r\n", mail[:to].encoded
+    assert_equal "Cc: =?ISO-2022-JP?B?WWFtYWRhLCBJbmMuIBskQjszRUQ+JkU5GyhC?= <cc@example.test>\r\n", mail[:cc].encoded
+  end
+
+  test "should fall back to the token-wise encoding for addresses with a non-ASCII addr-spec, a comment or a group" do
+    mail = Mail.new(:charset => 'ISO-2022-JP') do
+      from 'from@example.test'
+      to '太郎@example.test'
+      cc '太郎 (店) <cc@example.test>'
+      reply_to '店舗: 佐藤花子 <reply@example.test>;'
+      subject '件名'
+      body '本文'
+    end
+    # same outputs as before this change
+    assert_equal "To: =?ISO-2022-JP?B?GyRCQkBPOhsoQkBleGFtcGxlLnRlc3Q=?=\r\n", mail[:to].encoded
+    assert_equal "Cc: =?ISO-2022-JP?B?GyRCQkBPOhsoQg==?= =?ISO-2022-JP?B?KBskQkU5GyhCKQ==?= <cc@example.test>\r\n", mail[:cc].encoded
+    assert_equal "Reply-To: =?ISO-2022-JP?B?GyRCRTlKXhsoQjo=?= =?ISO-2022-JP?B?GyRCOjRGIzJWO1IbKEI=?= <reply@example.test>\r\n", mail[:reply_to].encoded
+  end
+
   test "should send with ISO-2022-JP encoding and empty subject" do
     mail = Mail.new(:charset => 'ISO-2022-JP') do
       from '山田太郎 <taro@example.com>'
@@ -67,9 +97,15 @@ class MailTest < ActiveSupport::TestCase
       body '日本語本文'
     end
     assert_equal 'ISO-2022-JP', mail.charset
-    assert_equal "From: =?ISO-2022-JP?B?Ig==?= =?ISO-2022-JP?B?PFlhbWFkYQ==?= =?ISO-2022-JP?B?GyRCQkBPOhsoQj4i?= <taro@example.com>\r\n", mail[:from].encoded
-    assert_equal "To: =?ISO-2022-JP?B?IjwbJEI6NEYjGyhC?= =?ISO-2022-JP?B?SGFuYWtvPg==?= =?ISO-2022-JP?B?Ig==?= <hanako@example.com>\r\n", mail[:to].encoded
-    assert_equal "Cc: =?ISO-2022-JP?B?Ig==?= =?ISO-2022-JP?B?PFgbJEI7dkwzNkkbKEI+?= =?ISO-2022-JP?B?Ig==?= <info@example.com>\r\n", mail[:cc].encoded
+    # The display name is encoded as a single encoded-word; the quotes are not needed any more
+    assert_equal "From: =?ISO-2022-JP?B?PFlhbWFkYSAbJEJCQE86GyhCPg==?= <taro@example.com>\r\n", mail[:from].encoded
+    assert_equal "To: =?ISO-2022-JP?B?PBskQjo0RiMbKEIgSGFuYWtvPg==?= <hanako@example.com>\r\n", mail[:to].encoded
+    assert_equal "Cc: =?ISO-2022-JP?B?PFgbJEI7dkwzNkkbKEI+?= <info@example.com>\r\n", mail[:cc].encoded
+    # Surrounding spaces of the quoted display names are dropped by the address parser
+    assert_equal "<Yamada 太郎>", NKF.nkf('-mw', mail[:from].display_names.first)
+    assert_equal "<佐藤 Hanako>", NKF.nkf('-mw', mail[:to].display_names.first)
+    assert_equal "<X事務局>", NKF.nkf('-mw', mail[:cc].display_names.first)
+    assert_equal ["hanako@example.com", "info@example.com"], mail.destinations
     version_numbers = ENV['MAIL_GEM_VERSION'].split('.')
     major_version_number = version_numbers[0].to_i
     minor_version_number = version_numbers[1].to_i

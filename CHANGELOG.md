@@ -1,3 +1,12 @@
+## Unreleased
+
+ * Encode a display name that contains non-ASCII characters as a single encoded-word in address fields
+   (From, To, Cc, ...). Previously a display name with spaces such as `"Taro Yamada 太郎" <taro@example.test>`
+   was split into encoded and raw fragments, which broke the address syntax so that the mail gem could not
+   extract the addr-spec (`Mail#destinations`) and SMTP servers rejected the recipient.
+   Surrounding spaces of a quoted display name are dropped. Values with a non-ASCII addr-spec, a comment
+   or group syntax keep the previous token-wise encoding.
+
 ## 2.0.8 (2018-02-23)
 
  * Support mail 2.7.0
