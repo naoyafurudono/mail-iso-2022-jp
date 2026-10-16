@@ -6,6 +6,7 @@ module Mail
   [FromField, SenderField, ToField, CcField, ReplyToField, ResentFromField, ResentSenderField, ResentToField, ResentCcField].each do |field_class|
     field_class.class_eval do
       include FieldWithIso2022JpEncoding
+      include AddressFieldWithIso2022JpEncoding
     end
   end
 end
